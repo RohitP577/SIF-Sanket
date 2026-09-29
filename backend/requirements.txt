@@ -7,3 +7,5 @@ pypdf
 langdetect
 python-multipart
 requests
+torch
+transformers
