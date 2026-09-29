@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+torch
+transformers
+datasets
+accelerate
+sentencepiece
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+python-dotenv

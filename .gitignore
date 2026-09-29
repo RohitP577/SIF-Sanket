@@ -1,0 +1,32 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# ML model files
+models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Python cache / tools
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
