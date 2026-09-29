@@ -35,6 +35,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://sif-sanket.netlify.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -46,7 +47,10 @@ app.add_middleware(
 # MODEL CONFIGURATION
 # ============================================================
 
-MODEL_PATH = "./models/xlm_roberta_sif_v4_final"
+MODEL_PATH = os.getenv(
+    "MODEL_PATH",
+    "./models/xlm_roberta_sif_v4_final"
+)
 
 LABEL_MAP = {
     0: "NO",
