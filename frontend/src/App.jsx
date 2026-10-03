@@ -14,7 +14,7 @@ import {
   CartesianGrid,
 } from "recharts";
 
-const API_BASE = (import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE || "https://sif-sanket-2.onrender.com").replace(/\/$/, "");
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "dashboard" },
