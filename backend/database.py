@@ -7,20 +7,20 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 
 # --------------------------------------------------
-# Load environment variables from .env
+# Load environment variables
 # --------------------------------------------------
 
 load_dotenv()
 
 
 # --------------------------------------------------
-# PostgreSQL Configuration
+# TiDB Cloud Configuration
 # --------------------------------------------------
 
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = os.getenv("DB_PORT", "5432")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT", "4000")
 DB_NAME = os.getenv("DB_NAME", "sif_sanket")
 
 
@@ -34,18 +34,22 @@ if not DB_USER:
 if not DB_PASSWORD:
     raise RuntimeError("DB_PASSWORD is not set in .env")
 
+if not DB_HOST:
+    raise RuntimeError("DB_HOST is not set in .env")
+
 
 # --------------------------------------------------
-# Create PostgreSQL URL safely
+# TiDB Cloud URL
 # --------------------------------------------------
 
 DATABASE_URL = URL.create(
-    drivername="postgresql+psycopg2",
+    drivername="mysql+pymysql",
     username=DB_USER,
     password=DB_PASSWORD,
     host=DB_HOST,
     port=int(DB_PORT),
     database=DB_NAME,
+    query={"charset": "utf8mb4"},
 )
 
 
@@ -55,7 +59,9 @@ DATABASE_URL = URL.create(
 
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True
+    pool_pre_ping=True,
+    pool_recycle=1800,
+    connect_args={"charset": "utf8mb4"},
 )
 
 
@@ -66,7 +72,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
-    bind=engine
+    bind=engine,
 )
 
 
@@ -82,10 +88,12 @@ Base = declarative_base()
 # --------------------------------------------------
 
 def get_db():
+
     db = SessionLocal()
 
     try:
         yield db
+
     finally:
         db.close()
 
