@@ -106,14 +106,15 @@ LOCATIONS = [
 ]
 
 BARRIERS = [
-    (["without gas testing", "gas test was not", "gas testing was not", "gas test not completed", "before the gas test", "gas test pending", "गैस टेस्ट नहीं"], "Required gas testing not completed"),
-    (["without a valid entry permit", "without entry permit", "without permit", "permit was not", "permit not confirmed", "बिना परमिट", "परमिट नहीं", "बिना अनुमति"], "Required permit/authorization not confirmed"),
-    (["isolation was not confirmed", "isolation not confirmed", "before electrical isolation", "without confirming", "energized equipment", "आइसोलेशन नहीं"], "Energy isolation not verified"),
+    (["without gas testing", "atmospheric gas testing", "atmospheric testing", "gas test was not", "gas testing was not", "gas test not completed", "before the gas test", "gas test pending", "गैस टेस्ट नहीं", "गैस परीक्षण कए बिना", "बिना गैस"], "Required gas testing not completed"),
+    (["without a valid entry permit", "without entry permit", "without permit", "permit was not", "permit not confirmed", "बिना परमिट", "परमिट नहीं", "बिना अनुमति", "बिना हॉट वर्क परमिट", "बिना हॉट वर्क", "बिना फायर वॉच", "बिना वैध"], "Required permit/authorization not confirmed"),
+    (["isolation was not confirmed", "isolation not confirmed", "before electrical isolation", "without confirming", "energized equipment", "energized", "आइसोलेशन नहीं", "loto"], "Energy isolation not verified"),
     (["near pedestrians", "pedestrians without", "separation distance", "दूरी नहीं"], "Required separation from people not maintained"),
     (["before the required inspection", "inspection had not been completed", "not inspected", "निरीक्षण नहीं"], "Required inspection not completed"),
-    (["without fall protection", "fall protection was not", "without fall arrest", "बिना सुरक्षा", "हार्नेस नहीं", "बेल्ट नहीं"], "Fall protection barrier not established"),
-    (["slip", "slipped", "wet floor", "oil spill", "slippery", "फिसलन", "गीला फर्श"], "Walking/working surface barrier failure"),
-    (["suspended-load zone", "suspended load zone"], "Personnel exposed to suspended-load zone"),
+    (["without fall protection", "fall protection was not", "without fall arrest", "बिना सुरक्षा हार्नेस", "बिना सुरक्षा", "हार्नेस नहीं", "बेल्ट नहीं"], "Fall protection barrier not established"),
+    (["slip and fell", "worker slipped", "oil spill", "slippery surface", "फिसलन", "गीला फर्श"], "Walking/working surface barrier failure"),
+    (["suspended-load zone", "suspended load zone", "over an active pedestrian", "over pedestrian", "without barricading", "tag line", "tag lines were not", "drop zone", "suspended heavy load"], "Personnel exposed to suspended-load zone"),
+    (["without shoring", "no soil shoring", "no shoring", "unshored", "deep excavation", "trench box"], "Excavation protective system not in place"),
     (["authorization was not", "before authorization", "without authorization", "बिना अनुमति"], "Required work authorization not confirmed"),
 ]
 
@@ -125,14 +126,17 @@ RISK_TERMS = [
     ("incident", 2), ("risk", 1), ("violation", 3),
     ("no gas test", 4), ("without permit", 4), ("energized", 4),
     ("suspended load", 3), ("fall protection", 3), ("confined space", 3),
-    ("slip", 2), ("slipped", 2), ("fell", 3), ("fall", 2), ("injury", 3),
-    ("खतरा", 2), ("हादसा", 3), ("दुर्घटना", 3), ("फिसल", 2), ("गिरा", 3), ("चोट", 3),
+    ("injury", 3), ("without shoring", 4), ("no shoring", 4), ("without barricad", 4),
+    ("drop zone", 3), ("बिना हॉट वर्क", 4), ("बिना परमिट", 4), ("बिना सुरक्षा", 4),
+    ("गंभीर खतरा", 4), ("खतरा", 2), ("हादसा", 3), ("दुर्घटना", 3), ("गिरा", 3), ("चोट", 3),
 ]
 
 SAFE_TERMS = [
     "completed", "verified", "confirmed", "inspected", "authorized",
     "properly isolated", "gas tested", "permit approved", "controlled",
-    "सुरक्षित", "सत्यापित", "अनुमोदित",
+    "no injuries", "no injury", "no worker slipped", "no slipped", "cleaned the area",
+    "caution wet floor", "toolbox meeting", "toolbox talk", "meeting completed",
+    "सुरक्षित", "सत्यापित", "अनुमोदित", "सही पाए गए", "कोई असुरक्षित", "कोई जोखिम नहीं",
 ]
 
 
@@ -411,59 +415,252 @@ def analyze_report(request: AnalyzeRequest):
     }
 
 
+def extract_document_reports(file_path: str, filename: str) -> list[dict]:
+    """
+    Extracts one or more safety reports from PDF, CSV, Excel, TXT, or JSON.
+    Returns list of dicts: [{"text": str, "site": str | None, "title": str | None}, ...]
+    """
+    ext = os.path.splitext(filename)[1].lower()
+    reports = []
+
+    if ext == ".pdf":
+        raw = extract_pdf_text(file_path)
+        if raw.strip():
+            reports.append({"text": raw.strip(), "site": None, "title": filename})
+
+    elif ext in [".txt", ".log"]:
+        with open(file_path, "rb") as f:
+            content_bytes = f.read()
+        try:
+            raw = content_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raw = content_bytes.decode("latin-1", errors="replace")
+        if raw.strip():
+            reports.append({"text": raw.strip(), "site": None, "title": filename})
+
+    elif ext == ".csv":
+        with open(file_path, "rb") as f:
+            content_bytes = f.read()
+        try:
+            content = content_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            content = content_bytes.decode("latin-1", errors="replace")
+
+        import csv
+        reader = csv.reader(content.splitlines())
+        rows = [r for r in reader if any(cell.strip() for cell in r)]
+        if not rows:
+            return []
+
+        header = [c.strip().lower() for c in rows[0]]
+        text_col_idx = None
+        site_col_idx = None
+        title_col_idx = None
+
+        for cand in ["report_text", "incident_details", "description", "incident", "details", "narrative", "text", "report"]:
+            for idx, col in enumerate(header):
+                if cand == col or (cand in col and "id" not in col):
+                    text_col_idx = idx
+                    break
+            if text_col_idx is not None:
+                break
+
+        for cand in ["site_location", "location", "site", "facility", "unit", "area"]:
+            for idx, col in enumerate(header):
+                if cand == col or cand in col:
+                    site_col_idx = idx
+                    break
+            if site_col_idx is not None:
+                break
+
+        for cand in ["title", "subject", "summary", "name", "report_id"]:
+            for idx, col in enumerate(header):
+                if cand == col or cand in col:
+                    title_col_idx = idx
+                    break
+            if title_col_idx is not None:
+                break
+
+        if text_col_idx is not None and len(rows) > 1:
+            for row in rows[1:]:
+                if text_col_idx < len(row) and row[text_col_idx].strip():
+                    text = row[text_col_idx].strip()
+                    site = row[site_col_idx].strip() if (site_col_idx is not None and site_col_idx < len(row)) else None
+                    title = row[title_col_idx].strip() if (title_col_idx is not None and title_col_idx < len(row)) else filename
+                    reports.append({"text": text, "site": site, "title": title})
+        else:
+            for row in rows:
+                joined = " | ".join(cell.strip() for cell in row if cell.strip())
+                if joined:
+                    reports.append({"text": joined, "site": None, "title": filename})
+
+    elif ext in [".xlsx", ".xls"]:
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            sheet = wb.active
+            rows = []
+            for r in sheet.iter_rows(values_only=True):
+                if any(c is not None and str(c).strip() for c in r):
+                    rows.append([str(c or "").strip() for c in r])
+
+            if rows:
+                header = [c.lower() for c in rows[0]]
+                text_col_idx = None
+                site_col_idx = None
+                title_col_idx = None
+
+                for cand in ["report_text", "incident_details", "description", "incident", "details", "narrative", "text", "report"]:
+                    for idx, col in enumerate(header):
+                        if cand == col or (cand in col and "id" not in col):
+                            text_col_idx = idx
+                            break
+                    if text_col_idx is not None:
+                        break
+
+                for cand in ["site_location", "location", "site", "facility", "unit", "area"]:
+                    for idx, col in enumerate(header):
+                        if cand == col or cand in col:
+                            site_col_idx = idx
+                            break
+                    if site_col_idx is not None:
+                        break
+
+                for cand in ["title", "subject", "summary", "name", "report_id"]:
+                    for idx, col in enumerate(header):
+                        if cand == col or cand in col:
+                            title_col_idx = idx
+                            break
+                    if title_col_idx is not None:
+                        break
+
+                if text_col_idx is not None and len(rows) > 1:
+                    for row in rows[1:]:
+                        if text_col_idx < len(row) and row[text_col_idx].strip():
+                            text = row[text_col_idx].strip()
+                            site = row[site_col_idx].strip() if (site_col_idx is not None and site_col_idx < len(row)) else None
+                            title = row[title_col_idx].strip() if (title_col_idx is not None and title_col_idx < len(row)) else filename
+                            reports.append({"text": text, "site": site, "title": title})
+                else:
+                    for row in rows:
+                        joined = " | ".join(c for c in row if c)
+                        if joined:
+                            reports.append({"text": joined, "site": None, "title": filename})
+        except Exception as e:
+            raise ValueError(f"Excel parsing failed: {e}")
+
+    elif ext == ".json":
+        import json
+        with open(file_path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    txt = item.get("report_text") or item.get("description") or item.get("incident") or str(item)
+                    site = item.get("site_location") or item.get("site") or item.get("location")
+                    title = item.get("title") or item.get("report_id") or filename
+                    reports.append({"text": txt, "site": site, "title": title})
+                elif isinstance(item, str) and item.strip():
+                    reports.append({"text": item.strip(), "site": None, "title": filename})
+        elif isinstance(data, dict):
+            if "reports" in data and isinstance(data["reports"], list):
+                for item in data["reports"]:
+                    if isinstance(item, dict):
+                        txt = item.get("report_text") or item.get("description") or str(item)
+                        site = item.get("site_location") or item.get("site")
+                        title = item.get("title") or filename
+                        reports.append({"text": txt, "site": site, "title": title})
+            else:
+                txt = data.get("report_text") or data.get("description") or str(data)
+                site = data.get("site_location") or data.get("site")
+                title = data.get("title") or filename
+                reports.append({"text": txt, "site": site, "title": title})
+
+    return reports
+
+
+@app.post("/analyze-document")
 @app.post("/analyze-pdf")
-async def analyze_pdf(file: UploadFile = File(...)):
+async def analyze_document_upload(file: UploadFile = File(...)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected")
 
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    allowed_exts = [".pdf", ".csv", ".xlsx", ".xls", ".txt", ".json", ".log"]
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail=f"File extension '{ext}' not supported. Allowed: {', '.join(allowed_exts)}")
 
     temp_path = None
     try:
         content = await file.read()
         if not content:
-            raise HTTPException(status_code=400, detail="Uploaded PDF is empty")
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp:
             temp.write(content)
             temp_path = temp.name
 
         try:
-            raw_text = extract_pdf_text(temp_path)
+            extracted_reports = extract_document_reports(temp_path, file.filename)
         except Exception as error:
-            raise HTTPException(status_code=400, detail=f"PDF text extraction failed: {error}")
+            raise HTTPException(status_code=400, detail=f"Document parsing failed: {error}")
 
-        if not raw_text:
-            raise HTTPException(status_code=400, detail="No readable text was found in the PDF.")
+        if not extracted_reports:
+            raise HTTPException(status_code=400, detail="No readable incident reports were found in the uploaded file.")
 
-        detected_language = detect_language_name(raw_text)
+        processed = []
+        for item in extracted_reports:
+            r_text = item["text"]
+            r_site = item.get("site")
+            r_lang = detect_language_name(r_text)
+            r_res = run_ai_analysis(r_text, site=r_site)
 
-        normalized_text = raw_text
-        result = run_ai_analysis(normalized_text)
+            r_id = save_report_to_database(
+                raw_text=r_text,
+                detected_language=r_lang,
+                normalized_text=r_text,
+                analysis_result=r_res,
+            )
 
-        report_id = save_report_to_database(
-            raw_text=raw_text,
-            detected_language=detected_language,
-            normalized_text=normalized_text,
-            analysis_result=result,
-        )
+            processed.append({
+                "report_id": r_id,
+                "title": item.get("title") or file.filename,
+                "raw_text": r_text,
+                "detected_language": r_lang,
+                "normalized_text": r_text,
+                **r_res,
+            })
+
+        # Primary report to display in UI card
+        primary = processed[0]
 
         return {
-            "report_id": report_id,
+            "report_id": primary["report_id"],
             "filename": file.filename,
-            "detected_language": detected_language,
-            "raw_text": raw_text,
-            "normalized_text": normalized_text,
-            **result,
-            "translation_status": "free_mode_no_translation",
+            "detected_language": primary["detected_language"],
+            "raw_text": primary["raw_text"],
+            "normalized_text": primary["normalized_text"],
+            "sif_prediction": primary["sif_prediction"],
+            "confidence": primary["confidence"],
+            "life_saving_rule": primary["life_saving_rule"],
+            "precursor_activity": primary["precursor_activity"],
+            "precursor_location": primary["precursor_location"],
+            "barrier_failure": primary["barrier_failure"],
+            "analysis_mode": primary.get("analysis_mode", "free_lightweight"),
+            "matched_safety_signals": primary.get("matched_safety_signals", []),
             "database_status": "saved",
+            "batch_summary": {
+                "total_reports": len(processed),
+                "sif_yes": sum(1 for p in processed if p["sif_prediction"] == "YES"),
+                "sif_no": sum(1 for p in processed if p["sif_prediction"] == "NO"),
+            },
+            "reports": processed,
         }
 
     except HTTPException:
         raise
     except Exception as error:
-        raise HTTPException(status_code=500, detail=f"PDF processing error: {error}")
+        raise HTTPException(status_code=500, detail=f"Document processing error: {error}")
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
